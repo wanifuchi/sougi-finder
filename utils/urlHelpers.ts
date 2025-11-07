@@ -210,8 +210,17 @@ export async function generateRegionSlugAsync(address: string): Promise<string> 
       }
     }
 
-    // マッチしない場合は全体からスラッグを生成
-    return await convertToRomaji(address);
+    // パターンマッチしない場合、入力をそのまま変換
+    // 「新宿」「渋谷」などの単一地名に対応
+    const slug = await convertToRomaji(address);
+
+    // 有効なスラッグが生成された場合は返す
+    if (slug && slug.length > 0) {
+      return slug;
+    }
+
+    // 最終フォールバック
+    return generateSlug(address);
   } catch (error) {
     console.error('地域スラッグ生成エラー:', error);
     return generateRegionSlug(address);
