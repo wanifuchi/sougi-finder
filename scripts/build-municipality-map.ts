@@ -24,7 +24,7 @@ const __dirname = dirname(__filename);
 const TSV_URL = 'https://raw.githubusercontent.com/OtterSou/japan-municipalities/main/3-muni.tsv';
 
 // 出力先
-const OUTPUT_DIR = path.join(__dirname, '../src/data');
+const OUTPUT_DIR = path.join(__dirname, '../utils/data');
 const OUTPUT_FILE = path.join(OUTPUT_DIR, 'municipalities.json');
 
 interface MunicipalityData {

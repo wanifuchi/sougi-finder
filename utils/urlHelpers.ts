@@ -6,7 +6,7 @@
 
 import Kuroshiro from 'kuroshiro';
 import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji';
-import municipalityMap from '../src/data/municipalities.json';
+import municipalityMap from './data/municipalities.json';
 
 // Kuroshiroインスタンス（シングルトン）
 let kuroshiroInstance: Kuroshiro | null = null;
