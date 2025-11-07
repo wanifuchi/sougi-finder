@@ -6,6 +6,7 @@
 
 import Kuroshiro from 'kuroshiro';
 import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji';
+import municipalityMap from '../src/data/municipalities.json';
 
 // Kuroshiroインスタンス（シングルトン）
 let kuroshiroInstance: Kuroshiro | null = null;
@@ -76,7 +77,24 @@ export async function convertToRomaji(text: string): Promise<string> {
  * kuroshiroが失敗した場合に使用
  */
 function convertToRomajiFallback(text: string): string {
-  // 一般的な日本語→ローマ字マッピング
+  // 【優先度1】市区町村マップでチェック
+  // OtterSou/japan-municipalities (2025年3月版) の公式データを使用
+  // ライセンス: CC0 1.0 Universal
+
+  // 「区」「市」「町」「村」を削除してから検索
+  const cleanedForLookup = text.replace(/区$|市$|町$|村$/g, '').trim();
+
+  // マップに存在する場合は即座に返す
+  if (municipalityMap[cleanedForLookup as keyof typeof municipalityMap]) {
+    return municipalityMap[cleanedForLookup as keyof typeof municipalityMap];
+  }
+
+  // 元のテキストでも検索（念のため）
+  if (municipalityMap[text as keyof typeof municipalityMap]) {
+    return municipalityMap[text as keyof typeof municipalityMap];
+  }
+
+  // 【優先度2】一般的な日本語→ローマ字マッピング（ひらがな・カタカナのみ）
   const romajiMap: Record<string, string> = {
     // 平仮名
     'あ': 'a', 'い': 'i', 'う': 'u', 'え': 'e', 'お': 'o',
