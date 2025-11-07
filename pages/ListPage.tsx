@@ -3,7 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ResultsDisplay } from '../components/ResultsDisplay';
 import { LogoIcon, MapPinIcon } from '../components/Icons';
 import type { SearchResult } from '../types';
-import { generateFacilitySlug } from '../utils/urlHelpers';
+import {
+  generateFacilitySlugAsync,
+  loadSearchResults
+} from '../utils/urlHelpers';
 
 /**
  * 地域別一覧ページ
@@ -26,30 +29,35 @@ export const ListPage: React.FC = () => {
     const loadFacilities = () => {
       try {
         // sessionStorageから検索結果を取得
-        const cachedResults = sessionStorage.getItem('searchResults');
-        const cachedQuery = sessionStorage.getItem('searchQuery');
+        const searchData = loadSearchResults();
 
-        if (cachedResults) {
-          const results: SearchResult[] = JSON.parse(cachedResults);
-
-          // 地域スラッグに対応する施設を抽出
-          // 暫定的な実装: addressに含まれる地域名で絞り込み
-          const filteredResults = results.filter(r => {
-            const addressSlug = r.address.toLowerCase()
-              .replace(/[^\w\s-]/g, '')
-              .replace(/\s+/g, '-');
-            return addressSlug.includes(region || '');
-          });
-
-          setFacilities(filteredResults);
-          setRegionName(cachedQuery || '検索結果');
-          setHasSearched(true);
-        } else {
-          // キャッシュがない場合は全結果を表示
-          setFacilities([]);
-          setRegionName('検索結果');
-          setHasSearched(true);
+        if (!searchData) {
+          // キャッシュがない場合はホームへリダイレクト
+          setError('検索結果が見つかりません。検索からやり直してください。');
+          setIsLoading(false);
+          return;
         }
+
+        const { results, query, isCurrentLocation } = searchData;
+
+        if (region === 'current') {
+          // 現在地検索の結果
+          if (!isCurrentLocation) {
+            // current URLなのに現在地検索でない場合は全結果を表示
+            setFacilities(results);
+            setRegionName(query);
+          } else {
+            // 現在地検索の結果をそのまま表示
+            setFacilities(results);
+            setRegionName('現在地周辺の葬儀社');
+          }
+        } else {
+          // 地名検索の結果 - 全結果を表示（すでに地域で絞り込まれている）
+          setFacilities(results);
+          setRegionName(query);
+        }
+
+        setHasSearched(true);
       } catch (e) {
         console.error('Error loading facilities:', e);
         setError('施設情報の読み込みに失敗しました');
@@ -61,9 +69,9 @@ export const ListPage: React.FC = () => {
     loadFacilities();
   }, [region]);
 
-  const handleSelectResult = (result: SearchResult) => {
-    // 施設詳細ページへ遷移（urlHelpers.tsを使用）
-    const facilitySlug = generateFacilitySlug(result.title, result.placeId);
+  const handleSelectResult = async (result: SearchResult) => {
+    // 施設詳細ページへ遷移（非同期版スラッグ生成を使用）
+    const facilitySlug = await generateFacilitySlugAsync(result.title, result.placeId);
     navigate(`/detail/${facilitySlug}`);
   };
 

@@ -6,7 +6,12 @@ import { searchFuneralHomes } from '../services/geminiService';
 import { SearchBar } from '../components/SearchBar';
 import { ResultsDisplay } from '../components/ResultsDisplay';
 import { LogoIcon, CompassIcon, AlertTriangleIcon, MapPinIcon, SearchIcon } from '../components/Icons';
-import { generateFacilitySlug } from '../utils/urlHelpers';
+import {
+  generateFacilitySlug,
+  saveSearchResults,
+  getCurrentLocationListUrl,
+  generateRegionSlugAsync
+} from '../utils/urlHelpers';
 
 type SearchTab = 'nearby' | 'manual';
 type ViewMode = 'list' | 'map';
@@ -28,7 +33,11 @@ export const SearchPage: React.FC = () => {
 
   const { position, error: geoError, loading: geoLoading } = useGeolocation();
 
-  const performSearch = useCallback(async (searchQuery: string, searchPosition: typeof position) => {
+  const performSearch = useCallback(async (
+    searchQuery: string,
+    searchPosition: typeof position,
+    isCurrentLocation: boolean = false
+  ) => {
     setIsLoading(true);
     setError(null);
     setHasSearched(true);
@@ -40,23 +49,33 @@ export const SearchPage: React.FC = () => {
       const places = await searchFuneralHomes(searchQuery, searchPosition);
       setSearchResults(places);
 
-      // 検索結果をsessionStorageに保存（他のページで使用するため）
-      sessionStorage.setItem('searchResults', JSON.stringify(places));
-      sessionStorage.setItem('searchQuery', searchQuery);
+      // 検索結果をsessionStorageに保存
+      saveSearchResults(places, searchQuery, isCurrentLocation);
+
+      // 検索結果に基づいて適切なURLに遷移
+      if (isCurrentLocation) {
+        // 現在地検索の場合は /list/current へ
+        navigate(getCurrentLocationListUrl());
+      } else if (places.length > 0) {
+        // 地名検索の場合は最初の施設の地域スラッグを使用
+        const firstAddress = places[0].address;
+        const regionSlug = await generateRegionSlugAsync(firstAddress);
+        navigate(`/list/${regionSlug}`);
+      }
     } catch (e) {
       console.error(e);
       setError('検索中にエラーが発生しました。しばらくしてからもう一度お試しください。');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   const handleNearbySearch = useCallback(() => {
     if (geoError || !position) {
       setError('位置情報の取得に失敗しました。ブラウザの設定を確認し、再度お試しください。');
       return;
     }
-    performSearch('近くの葬儀社', position);
+    performSearch('近くの葬儀社', position, true); // isCurrentLocation = true
   }, [position, geoError, performSearch]);
 
   const handleManualSearch = useCallback(() => {
@@ -64,7 +83,7 @@ export const SearchPage: React.FC = () => {
       setError('検索キーワードを入力してください。');
       return;
     }
-    performSearch(manualQuery, position);
+    performSearch(manualQuery, position, false); // isCurrentLocation = false
   }, [manualQuery, position, performSearch]);
 
   const handleSelectResult = (result: SearchResult) => {

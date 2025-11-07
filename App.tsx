@@ -1,35 +1,36 @@
-// ===== React Router実装（コメントアウト・保存中）=====
-// import React from 'react';
-// import { Routes, Route } from 'react-router-dom';
-// import { SearchPage } from './pages/SearchPage';
-// import { ListPage } from './pages/ListPage';
-// import { FacilityDetailPage } from './pages/FacilityDetailPage';
-//
-// /**
-//  * メインアプリケーションコンポーネント
-//  * React Routerを使用してページ間のルーティングを管理
-//  */
-// const App: React.FC = () => {
-//   return (
-//     <Routes>
-//       {/* ホーム - 検索ページ */}
-//       <Route path="/" element={<SearchPage />} />
-//
-//       {/* 地域別一覧ページ */}
-//       <Route path="/list/:region" element={<ListPage />} />
-//
-//       {/* 施設詳細ページ */}
-//       <Route path="/detail/:facilitySlug" element={<FacilityDetailPage />} />
-//
-//       {/* 404 Not Found - ホームにリダイレクト */}
-//       <Route path="*" element={<SearchPage />} />
-//     </Routes>
-//   );
-// };
-//
-// export default App;
+// ===== React Router実装（有効化）=====
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { SearchPage } from './pages/SearchPage';
+import { ListPage } from './pages/ListPage';
+import { FacilityDetailPage } from './pages/FacilityDetailPage';
 
-// ===== 過去の単一ページ実装（現在使用中）=====
+/**
+ * メインアプリケーションコンポーネント
+ * React Routerを使用してページ間のルーティングを管理
+ */
+const App: React.FC = () => {
+  return (
+    <Routes>
+      {/* ホーム - 検索ページ */}
+      <Route path="/" element={<SearchPage />} />
+
+      {/* 地域別一覧ページ */}
+      <Route path="/list/:region" element={<ListPage />} />
+
+      {/* 施設詳細ページ */}
+      <Route path="/detail/:facilitySlug" element={<FacilityDetailPage />} />
+
+      {/* 404 Not Found - ホームにリダイレクト */}
+      <Route path="*" element={<SearchPage />} />
+    </Routes>
+  );
+};
+
+export default App;
+
+// ===== 過去の単一ページ実装（コメントアウト・保存中）=====
+/*
 import React, { useState, useCallback } from 'react';
 import type { SearchResult } from './types';
 import { useGeolocation } from './hooks/useGeolocation';
@@ -212,3 +213,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+*/

@@ -2,7 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DetailPage } from '../components/DetailPage';
 import type { SearchResult } from '../types';
-import { generateFacilitySlug } from '../utils/urlHelpers';
+import {
+  generateFacilitySlugAsync,
+  loadSearchResults
+} from '../utils/urlHelpers';
 
 /**
  * 施設詳細ページ
@@ -17,26 +20,34 @@ export const FacilityDetailPage: React.FC = () => {
 
   useEffect(() => {
     // URLスラッグから施設データを取得
-    // 現時点では localStorage からキャッシュされた検索結果を取得
+    // 現時点では sessionStorage からキャッシュされた検索結果を取得
     // 将来的にはAPIから直接取得する実装に変更可能
-    const loadFacility = () => {
+    const loadFacility = async () => {
       try {
         // sessionStorageから検索結果を取得
-        const cachedResults = sessionStorage.getItem('searchResults');
-        if (cachedResults) {
-          const results: SearchResult[] = JSON.parse(cachedResults);
+        const searchData = loadSearchResults();
 
-          // スラッグに対応する施設を検索（urlHelpers.tsを使用して正確に比較）
-          const found = results.find(r => {
-            const generatedSlug = generateFacilitySlug(r.title, r.placeId);
-            return generatedSlug === facilitySlug;
-          });
+        if (!searchData) {
+          setError('検索結果が見つかりません。検索からやり直してください。');
+          setIsLoading(false);
+          return;
+        }
 
-          if (found) {
-            setFacility(found);
-          } else {
-            setError('施設情報が見つかりませんでした');
+        const { results } = searchData;
+
+        // スラッグに対応する施設を検索（非同期スラッグ生成で正確に比較）
+        let found: SearchResult | undefined;
+
+        for (const result of results) {
+          const generatedSlug = await generateFacilitySlugAsync(result.title, result.placeId);
+          if (generatedSlug === facilitySlug) {
+            found = result;
+            break;
           }
+        }
+
+        if (found) {
+          setFacility(found);
         } else {
           setError('施設情報が見つかりませんでした');
         }

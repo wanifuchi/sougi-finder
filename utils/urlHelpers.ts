@@ -1,14 +1,81 @@
 /**
  * URL生成ユーティリティ
  * 日本語の施設名・地域名を英数字のURLスラッグに変換
+ * kuroshiroを使用した正確な日本語→ローマ字変換
  */
 
+import Kuroshiro from 'kuroshiro';
+import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji';
+
+// Kuroshiroインスタンス（シングルトン）
+let kuroshiroInstance: Kuroshiro | null = null;
+let initPromise: Promise<void> | null = null;
+
 /**
- * 日本語文字列をローマ字スラッグに変換
- * 例: "東京都練馬区" → "nerima"
- * 例: "株式会社セレハウス" → "celehouse"
+ * Kuroshiroを初期化（初回のみ実行）
  */
-export function generateSlug(text: string): string {
+async function initKuroshiro(): Promise<void> {
+  if (kuroshiroInstance) return;
+
+  if (initPromise) {
+    await initPromise;
+    return;
+  }
+
+  initPromise = (async () => {
+    try {
+      kuroshiroInstance = new Kuroshiro();
+      await kuroshiroInstance.init(new KuromojiAnalyzer());
+    } catch (error) {
+      console.error('Kuroshiro初期化エラー:', error);
+      kuroshiroInstance = null;
+      initPromise = null;
+      throw error;
+    }
+  })();
+
+  await initPromise;
+}
+
+/**
+ * 日本語文字列をローマ字スラッグに変換（kuroshiro使用）
+ * 例: "東京都練馬区" → "tokyo-to-nerima-ku"
+ * 例: "株式会社セレハウス" → "kabushikigaisha-cerehouse"
+ */
+export async function convertToRomaji(text: string): Promise<string> {
+  try {
+    await initKuroshiro();
+
+    if (!kuroshiroInstance) {
+      throw new Error('Kuroshiroが初期化されていません');
+    }
+
+    // kuroshiroでローマ字変換
+    const romaji = await kuroshiroInstance.convert(text, {
+      mode: 'normal',
+      to: 'romaji',
+      romajiSystem: 'hepburn'
+    });
+
+    // クリーンアップ
+    return romaji
+      .toLowerCase()
+      .replace(/\s+/g, '-')        // スペースをハイフンに
+      .replace(/[^a-z0-9-]/g, '')  // 英数字とハイフン以外を削除
+      .replace(/-+/g, '-')         // 連続するハイフンを1つに
+      .replace(/^-+|-+$/g, '');    // 前後のハイフンを削除
+  } catch (error) {
+    console.error('ローマ字変換エラー:', error);
+    // フォールバック: 静的マッピング
+    return convertToRomajiFallback(text);
+  }
+}
+
+/**
+ * フォールバック用の静的ローマ字変換
+ * kuroshiroが失敗した場合に使用
+ */
+function convertToRomajiFallback(text: string): string {
   // 一般的な日本語→ローマ字マッピング
   const romajiMap: Record<string, string> = {
     // 平仮名
@@ -51,63 +118,64 @@ export function generateSlug(text: string): string {
     'ー': ''
   };
 
-  // 漢字の一般的な読みマッピング（よく使われる地名・施設名用）
-  const kanjiReadingMap: Record<string, string> = {
-    // 地名
-    '東京': 'tokyo', '練馬': 'nerima', '世田谷': 'setagaya', '渋谷': 'shibuya',
-    '新宿': 'shinjuku', '港': 'minato', '目黒': 'meguro', '品川': 'shinagawa',
-    '大田': 'ota', '中野': 'nakano', '杉並': 'suginami', '豊島': 'toshima',
-    '北': 'kita', '荒川': 'arakawa', '板橋': 'itabashi', '足立': 'adachi',
-    '葛飾': 'katsushika', '江戸川': 'edogawa', '横浜': 'yokohama',
-    '川崎': 'kawasaki', '相模原': 'sagamihara', '大阪': 'osaka', '京都': 'kyoto',
-    '神戸': 'kobe', '名古屋': 'nagoya', '福岡': 'fukuoka', '札幌': 'sapporo',
-    '仙台': 'sendai', '広島': 'hiroshima',
-    // 一般的な語句
-    '葬儀': 'sogi', '家族': 'kazoku', '葬': 'so', '祭': 'sai',
-    '株式会社': '', '有限会社': '', '合同会社': '', '社': '',
-    '都': '', '府': '', '県': '', '区': '', '市': '', '町': '', '村': '',
-    '丁目': '', '番地': '', '号': ''
-  };
-
-  let slug = text.toLowerCase().trim();
-
-  // 漢字の熟語を優先的に変換
-  for (const [kanji, romaji] of Object.entries(kanjiReadingMap)) {
-    slug = slug.replace(new RegExp(kanji, 'g'), romaji);
+  // 不要な語句を削除
+  const removeWords = ['株式会社', '有限会社', '合同会社', '都', '府', '県', '区', '市', '町', '村', '丁目', '番地', '号'];
+  let cleaned = text;
+  for (const word of removeWords) {
+    cleaned = cleaned.replace(new RegExp(word, 'g'), '');
   }
 
-  // 残った文字を1文字ずつローマ字変換
+  // 1文字ずつローマ字変換
   let result = '';
-  for (const char of slug) {
+  for (const char of cleaned.toLowerCase()) {
     if (romajiMap[char]) {
       result += romajiMap[char];
     } else if (/[a-z0-9]/.test(char)) {
-      // 既に英数字の場合はそのまま
       result += char;
-    } else {
-      // 変換できない文字は無視
-      continue;
     }
   }
 
-  // クリーンアップ: 連続するハイフンを1つに、前後の空白を削除
-  slug = result
-    .replace(/\s+/g, '-')        // スペースをハイフンに
-    .replace(/-+/g, '-')         // 連続するハイフンを1つに
-    .replace(/^-+|-+$/g, '')     // 前後のハイフンを削除
+  // クリーンアップ
+  return result
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
     .toLowerCase();
-
-  // 空の場合はランダムなIDを生成
-  if (!slug || slug.length < 2) {
-    slug = 'facility-' + Math.random().toString(36).substring(2, 8);
-  }
-
-  return slug;
 }
 
 /**
- * 施設名からURLスラッグを生成
- * 例: "家族葬のセレハウス谷原" → "celehouse-tanihara"
+ * 日本語文字列をローマ字スラッグに変換（同期版）
+ * 初回呼び出しは非同期版を使用してください
+ */
+export function generateSlug(text: string): string {
+  // 同期版フォールバック（React Router等で同期的に必要な場合）
+  return convertToRomajiFallback(text);
+}
+
+/**
+ * 施設名からURLスラッグを生成（非同期版）
+ * 例: "家族葬のセレハウス谷原" → "kazokuso-no-cerehouse-tanihara"
+ * 例: "マキノ祭典 石神井公園駅前店" → "makinosaiten-shakujiikouenekimaeten"
+ */
+export async function generateFacilitySlugAsync(title: string, placeId?: string): Promise<string> {
+  try {
+    const slug = await convertToRomaji(title);
+
+    // スラッグが短すぎる場合はplaceIdの一部を使用
+    if (slug.length < 3 && placeId) {
+      const idPart = placeId.replace('places/', '').substring(0, 8);
+      return `${slug}-${idPart}`.toLowerCase();
+    }
+
+    return slug;
+  } catch (error) {
+    console.error('施設スラッグ生成エラー:', error);
+    return generateFacilitySlug(title, placeId);
+  }
+}
+
+/**
+ * 施設名からURLスラッグを生成（同期版・フォールバック）
  */
 export function generateFacilitySlug(title: string, placeId?: string): string {
   const slug = generateSlug(title);
@@ -122,8 +190,36 @@ export function generateFacilitySlug(title: string, placeId?: string): string {
 }
 
 /**
- * 住所から地域スラッグを生成
- * 例: "東京都練馬区谷原2丁目3-8" → "nerima"
+ * 住所から地域スラッグを生成（非同期版）
+ * 例: "東京都練馬区谷原2丁目3-8" → "nerima-ku"
+ * 例: "新潟県長岡市" → "nagaoka-shi"
+ */
+export async function generateRegionSlugAsync(address: string): Promise<string> {
+  try {
+    // 市区町村を抽出する正規表現
+    const patterns = [
+      /([^都道府県]+[区])/,          // 区（例: 練馬区）
+      /([^都道府県]+[市])/,          // 市（例: 横浜市）
+      /([^都道府県]+[町村])/         // 町村
+    ];
+
+    for (const pattern of patterns) {
+      const match = address.match(pattern);
+      if (match) {
+        return await convertToRomaji(match[1]);
+      }
+    }
+
+    // マッチしない場合は全体からスラッグを生成
+    return await convertToRomaji(address);
+  } catch (error) {
+    console.error('地域スラッグ生成エラー:', error);
+    return generateRegionSlug(address);
+  }
+}
+
+/**
+ * 住所から地域スラッグを生成（同期版・フォールバック）
  */
 export function generateRegionSlug(address: string): string {
   // 市区町村を抽出する正規表現
@@ -159,7 +255,29 @@ export function getRegionListUrl(slug: string): string {
 }
 
 /**
- * Place IDからスラッグとURLを生成
+ * 現在地検索結果一覧のURL
+ */
+export function getCurrentLocationListUrl(): string {
+  return '/list/current';
+}
+
+/**
+ * Place IDからスラッグとURLを生成（非同期版）
+ */
+export async function generateFacilityUrlsAsync(title: string, address: string, placeId: string) {
+  const facilitySlug = await generateFacilitySlugAsync(title, placeId);
+  const regionSlug = await generateRegionSlugAsync(address);
+
+  return {
+    facilitySlug,
+    regionSlug,
+    facilityUrl: getFacilityUrl(facilitySlug),
+    regionUrl: getRegionListUrl(regionSlug)
+  };
+}
+
+/**
+ * Place IDからスラッグとURLを生成（同期版・フォールバック）
  */
 export function generateFacilityUrls(title: string, address: string, placeId: string) {
   const facilitySlug = generateFacilitySlug(title, placeId);
@@ -171,4 +289,42 @@ export function generateFacilityUrls(title: string, address: string, placeId: st
     facilityUrl: getFacilityUrl(facilitySlug),
     regionUrl: getRegionListUrl(regionSlug)
   };
+}
+
+/**
+ * sessionStorageに検索結果とメタデータを保存
+ */
+export function saveSearchResults(results: any[], query: string, isCurrentLocation: boolean = false) {
+  try {
+    sessionStorage.setItem('searchResults', JSON.stringify(results));
+    sessionStorage.setItem('searchQuery', query);
+    sessionStorage.setItem('isCurrentLocation', String(isCurrentLocation));
+    sessionStorage.setItem('searchTimestamp', String(Date.now()));
+  } catch (error) {
+    console.error('検索結果の保存エラー:', error);
+  }
+}
+
+/**
+ * sessionStorageから検索結果とメタデータを取得
+ */
+export function loadSearchResults(): { results: any[]; query: string; isCurrentLocation: boolean } | null {
+  try {
+    const results = sessionStorage.getItem('searchResults');
+    const query = sessionStorage.getItem('searchQuery');
+    const isCurrentLocation = sessionStorage.getItem('isCurrentLocation') === 'true';
+
+    if (!results || !query) {
+      return null;
+    }
+
+    return {
+      results: JSON.parse(results),
+      query,
+      isCurrentLocation
+    };
+  } catch (error) {
+    console.error('検索結果の読み込みエラー:', error);
+    return null;
+  }
 }
