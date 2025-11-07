@@ -57,9 +57,8 @@ export const SearchPage: React.FC = () => {
         // 現在地検索の場合は /list/current へ
         navigate(getCurrentLocationListUrl());
       } else if (places.length > 0) {
-        // 地名検索の場合は最初の施設の地域スラッグを使用
-        const firstAddress = places[0].address;
-        const regionSlug = await generateRegionSlugAsync(firstAddress);
+        // 地名検索の場合は検索クエリをスラッグとして使用
+        const regionSlug = await generateRegionSlugAsync(searchQuery);
         navigate(`/list/${regionSlug}`);
       }
     } catch (e) {
