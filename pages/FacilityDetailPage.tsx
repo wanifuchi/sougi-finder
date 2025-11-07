@@ -102,5 +102,11 @@ export const FacilityDetailPage: React.FC = () => {
     );
   }
 
-  return <DetailPage result={facility} onBack={handleBackToList} />;
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+      <div className="w-full max-w-4xl mx-auto">
+        <DetailPage result={facility} onBack={handleBackToList} />
+      </div>
+    </div>
+  );
 };
