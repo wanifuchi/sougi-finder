@@ -1,0 +1,7 @@
+{
+  "name": "Japanese Funeral Home Finder",
+  "description": "An application to search for funeral homes in Japan using your location and display them on a map.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
