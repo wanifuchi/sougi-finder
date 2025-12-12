@@ -6,10 +6,8 @@ import { ResultsDisplay } from '../../components/ResultsDisplay';
 import { LogoIcon, MapPinIcon } from '../../components/Icons';
 import type { SearchResult } from '../../types';
 import {
-  generateFacilitySlug,
   loadSearchResults,
-  saveSlugPlaceIdMapping,
-  generateFacilitySlugAsync
+  generateFacilitySlugFromPlaceId
 } from '../../utils/urlHelpers';
 
 type ViewMode = 'list' | 'map';
@@ -26,6 +24,7 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
   const [regionName, setRegionName] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [hasSearched, setHasSearched] = useState<boolean>(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   useEffect(() => {
     // URLスラッグから地域の施設データを取得
@@ -72,18 +71,17 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
     loadFacilities();
   }, [region]);
 
-  const handleSelectResult = async (result: SearchResult) => {
+  const handleSelectResult = (result: SearchResult) => {
     if (!result.placeId) {
       console.error('placeId is missing');
       return;
     }
 
-    // 施設詳細ページへ遷移
-    const facilitySlug = await generateFacilitySlugAsync(result.title, result.placeId);
+    setIsNavigating(true);
 
-    // slug → placeId マッピングをsessionStorageに保存
-    saveSlugPlaceIdMapping(facilitySlug, result.placeId);
-
+    // 【新方式】PlaceIDをそのままslugとして使用
+    // これにより100%の一意性を保証し、KVマッピングが不要になる
+    const facilitySlug = generateFacilitySlugFromPlaceId(result.placeId);
     router.push(`/detail/${facilitySlug}`);
   };
 
@@ -129,6 +127,18 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+      {/* ナビゲーション中のローディングオーバーレイ */}
+      {isNavigating && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 text-center shadow-xl">
+            <svg className="animate-spin h-8 w-8 text-sky-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-slate-700 font-medium">詳細ページを読み込み中...</p>
+          </div>
+        </div>
+      )}
       <div className="w-full max-w-4xl mx-auto">
         {/* ヘッダー */}
         <header className="text-center mb-8">

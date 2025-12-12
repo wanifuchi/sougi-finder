@@ -14,25 +14,77 @@ type Props = {
 };
 
 /**
+ * 【新方式】slugが完全なPlaceIDの場合を判定
+ * PlaceIDは通常 "ChIJ" で始まる
+ */
+function isFullPlaceId(slug: string): boolean {
+  return slug.startsWith('ChIJ') || slug.startsWith('chij');
+}
+
+/**
+ * 【旧方式用】slugからplaceIdサフィックス（8文字）を抽出
+ * 例: "makinosaiten-chijdetd" → "chijdetd"
+ */
+function extractPlaceIdSuffix(slug: string): string | null {
+  const match = slug.match(/-([A-Za-z0-9]{8})$/);
+  return match ? match[1] : null;
+}
+
+/**
  * slugからplaceIdを解決
- * 1. slug-lookup API で placeId を取得（最優先）
- * 2. 失敗時は施設名検索API経由でplaceIdを取得（フォールバック）
+ *
+ * 【新方式】slugが完全なPlaceIDの場合（優先）
+ * - URLが /detail/ChIJdetd1234... の場合、そのままplaceIdとして使用
+ *
+ * 【旧方式・後方互換】slugがローマ字+サフィックスの場合
+ * 1. slugからplaceIdサフィックスを抽出してprefix検索
+ * 2. slug-lookup API で placeId を取得
+ * 3. 失敗時は施設名検索API経由でplaceIdを取得（フォールバック）
  */
 async function resolvePlaceId(slug: string): Promise<string | null> {
+  console.log(`🔍 [resolvePlaceId] Resolving placeId for slug: "${slug}"`);
+
+  // 【新方式】slugが完全なPlaceIDの場合、そのまま使用
+  if (isFullPlaceId(slug)) {
+    const placeId = `places/${slug}`;
+    console.log(`✅ [resolvePlaceId] Direct PlaceID detected: ${placeId}`);
+    return placeId;
+  }
+
+  // 【旧方式・後方互換】以下は旧形式のslug用フォールバック
+  console.log(`📋 [resolvePlaceId] Legacy slug format detected, using fallback chain`);
+
   // headers()から現在のホスト名を取得
   const headersList = await headers();
   const host = headersList.get('host') || 'localhost:3000';
   const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}`;
 
-  console.log(`🔍 [resolvePlaceId] Resolving placeId for slug: "${slug}"`);
-  console.log(`🌐 [resolvePlaceId] Using baseUrl: ${baseUrl}`);
+  // Step 1: slugからplaceIdサフィックスを抽出してprefix検索
+  const suffix = extractPlaceIdSuffix(slug);
+  if (suffix) {
+    console.log(`🎯 [resolvePlaceId] Extracted suffix from slug: "${suffix}"`);
+    try {
+      const prefixUrl = `${baseUrl}/api/slug-lookup?prefix=${encodeURIComponent(suffix)}`;
+      const prefixResponse = await fetch(prefixUrl, {
+        next: { revalidate: 3600 }
+      });
 
-  // まず slug-lookup API を試す
+      if (prefixResponse.ok) {
+        const prefixData = await prefixResponse.json();
+        if (prefixData.placeId) {
+          console.log(`✅ [resolvePlaceId] Found placeId from prefix lookup: ${prefixData.placeId}`);
+          return prefixData.placeId;
+        }
+      }
+    } catch (error) {
+      console.warn('[resolvePlaceId] Prefix lookup error:', error);
+    }
+  }
+
+  // Step 2: slug-lookup API を試す
   try {
     const lookupUrl = `${baseUrl}/api/slug-lookup?slug=${encodeURIComponent(slug)}`;
-    console.log(`📡 [resolvePlaceId] Calling slug-lookup API: ${lookupUrl}`);
-
     const lookupResponse = await fetch(lookupUrl, {
       next: { revalidate: 3600 }
     });
@@ -42,42 +94,32 @@ async function resolvePlaceId(slug: string): Promise<string | null> {
       if (lookupData.placeId) {
         console.log(`✅ [resolvePlaceId] Found placeId from lookup: ${lookupData.placeId}`);
         return lookupData.placeId;
-      } else {
-        console.warn(`⚠️ [resolvePlaceId] Lookup API returned no placeId`);
       }
-    } else {
-      console.warn(`⚠️ [resolvePlaceId] Lookup API failed with status: ${lookupResponse.status}`);
     }
   } catch (error) {
     console.warn('[resolvePlaceId] Lookup API error:', error);
   }
 
-  // フォールバック: 施設名検索API経由
+  // Step 3: フォールバック: 施設名検索API経由
   try {
     const searchUrl = `${baseUrl}/api/search-by-name?name=${encodeURIComponent(slug)}`;
-    console.log(`📡 [resolvePlaceId] Fallback to search-by-name API: ${searchUrl}`);
-
     const searchResponse = await fetch(searchUrl, {
       next: { revalidate: 3600 }
     });
 
-    if (!searchResponse.ok) {
-      console.error(`❌ [resolvePlaceId] Search API error: ${searchResponse.status}`);
-      return null;
-    }
-
-    const searchData = await searchResponse.json();
-    if (searchData.placeId) {
-      console.log(`✅ [resolvePlaceId] Found placeId from search: ${searchData.placeId}`);
-      return searchData.placeId;
-    } else {
-      console.error(`❌ [resolvePlaceId] Search API returned no placeId`);
-      return null;
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      if (searchData.placeId) {
+        console.log(`✅ [resolvePlaceId] Found placeId from search: ${searchData.placeId}`);
+        return searchData.placeId;
+      }
     }
   } catch (error) {
     console.error('❌ [resolvePlaceId] Search API failed:', error);
-    return null;
   }
+
+  console.error(`❌ [resolvePlaceId] Could not resolve placeId for slug: ${slug}`);
+  return null;
 }
 
 /**

@@ -79,7 +79,9 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
     };
 
     fetchDescription();
-  }, [facility.placeId, description, facility.title, facility.address]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facility.placeId, facility.title, facility.address]);
+  // Note: descriptionを依存配列から削除（状態更新でリトリガーを防ぐ）
 
   // 写真切り替え関数
   const nextPhoto = () => {

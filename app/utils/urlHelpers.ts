@@ -270,12 +270,25 @@ export function generateSlug(text: string): string {
 }
 
 /**
- * 施設名からURLスラッグを生成（非同期版・placeID付与方式）
+ * 【新方式】PlaceIDをそのままslugとして使用
+ * 例: "places/ChIJdetd1234567890abcdefgh" → "ChIJdetd1234567890abcdefgh"
+ *
+ * これにより100%の一意性を保証し、KVマッピングが不要になる
+ */
+export function generateFacilitySlugFromPlaceId(placeId: string): string {
+  // "places/" プレフィックスを削除
+  const slug = placeId.replace('places/', '');
+  console.log(`✅ [generateFacilitySlugFromPlaceId] placeId → slug: "${slug}"`);
+  return slug;
+}
+
+/**
+ * 【旧方式・後方互換用】施設名からURLスラッグを生成（非同期版・placeID付与方式）
  * 例: "家族葬のセレハウス谷原" + placeId → "kazokusonoserehausutanihara-chijn1t_"
  * 例: "マキノ祭典 石神井公園駅前店" + placeId → "makinosaitenshakujiikouenekimaeten-chijn1t_"
  * 例: "マキノ祭典" + placeId → "makinosaiten-chijabcd"
  *
- * placeIdの短縮版をサフィックスとして追加することで100%の一意性を保証
+ * @deprecated 新規コードでは generateFacilitySlugFromPlaceId を使用してください
  */
 export async function generateFacilitySlugAsync(title: string, placeId?: string): Promise<string> {
   try {
@@ -491,24 +504,30 @@ export function loadSearchResults(): { results: any[]; query: string; isCurrentL
 
 /**
  * slug → placeId マッピングを保存（sessionStorage + Vercel KV）
+ * 追加: placeIdサフィックス（8文字）→ 完全placeIdのマッピングも保存
  */
 export async function saveSlugPlaceIdMapping(slug: string, placeId: string): Promise<void> {
   try {
+    // placeIdサフィックス（先頭8文字）を抽出
+    const suffix = placeId.replace('places/', '').substring(0, 8).toLowerCase();
+
     // sessionStorageに保存（即時アクセス用）
     sessionStorage.setItem(`slug:${slug}`, placeId);
+    sessionStorage.setItem(`prefix:${suffix}`, placeId);
     console.log(`✅ [sessionStorage] Saved mapping: ${slug} → ${placeId}`);
+    console.log(`✅ [sessionStorage] Saved prefix mapping: ${suffix} → ${placeId}`);
 
-    // Vercel KVに保存（永続化）
+    // Vercel KVに保存（永続化）- suffixも一緒に送信
     const response = await fetch('/api/slug-lookup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ slug, placeId }),
+      body: JSON.stringify({ slug, placeId, suffix }),
     });
 
     if (response.ok) {
-      console.log(`✅ [Vercel KV] Saved mapping: ${slug} → ${placeId}`);
+      console.log(`✅ [Vercel KV] Saved mapping: ${slug} → ${placeId} (suffix: ${suffix})`);
     } else {
       console.warn(`⚠️ [Vercel KV] Failed to save mapping: ${response.status}`);
     }

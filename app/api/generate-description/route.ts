@@ -4,9 +4,296 @@
  * Grounding (Web Search) を使用してインターネットから追加情報を収集
  */
 
-import { kv } from '@vercel/kv';
-import { GoogleGenAI } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
+
+// 最寄り駅情報の型
+interface NearestStationInfo {
+  name: string;          // 駅名
+  distance: number;      // 距離(m)
+  walkingMinutes: number; // 徒歩時間(分)
+}
+
+/**
+ * 2点間の距離を計算 (メートル) - Haversine formula
+ */
+function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000; // 地球の半径 (m)
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * 住所から座標を取得 (Geocoding API)
+ */
+async function geocodeAddress(address: string, apiKey: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&language=ja&key=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results.length > 0) {
+      const location = data.results[0].geometry.location;
+      console.log(`[Geocode] Address "${address}" → (${location.lat}, ${location.lng})`);
+      return location;
+    }
+    console.warn(`[Geocode] Failed for address: ${address}, status: ${data.status}`);
+    return null;
+  } catch (error) {
+    console.error('[Geocode] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * 座標から最寄り駅を検索 (Places API - Nearby Search)
+ */
+async function findNearestStation(
+  lat: number,
+  lng: number,
+  apiKey: string
+): Promise<NearestStationInfo | null> {
+  try {
+    // 半径2km以内の鉄道駅を検索
+    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=2000&type=train_station&language=ja&key=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results.length > 0) {
+      const station = data.results[0]; // 最も近い駅
+      const stationLat = station.geometry.location.lat;
+      const stationLng = station.geometry.location.lng;
+
+      // 距離計算
+      const distance = calculateDistance(lat, lng, stationLat, stationLng);
+      const walkingMinutes = Math.ceil(distance / 80); // 80m/分で計算
+
+      // 駅名から「駅」を除去（後で「駅」を付けて表示するため）
+      const stationName = station.name.replace(/駅$/, '');
+
+      console.log(`[Station] Found: ${stationName}駅 (${Math.round(distance)}m, 徒歩${walkingMinutes}分)`);
+
+      return {
+        name: stationName,
+        distance: Math.round(distance),
+        walkingMinutes
+      };
+    }
+
+    console.log(`[Station] No station found within 2km, status: ${data.status}`);
+    return null;
+  } catch (error) {
+    console.error('[Station] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Upstash Redis REST API直接呼び出し
+ * 方式2: POSTでコマンド配列を送信（最も確実な方法）
+ * 参考: https://upstash.com/docs/redis/features/restapi
+ */
+async function kvGet(key: string): Promise<string | null> {
+  const baseUrl = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+
+  if (!baseUrl || !token) {
+    console.warn('[KV] Missing credentials');
+    return null;
+  }
+
+  try {
+    console.log(`[KV GET] Requesting key="${key}"`);
+
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['GET', key]),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`[KV GET] HTTP ${response.status}: ${errorText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const hit = data.result !== null && data.result !== undefined;
+    console.log(`[KV GET] key="${key}" → ${hit ? 'HIT (' + String(data.result).length + ' chars)' : 'MISS'}`);
+    return data.result || null;
+  } catch (error) {
+    console.error('[KV GET] Error:', error);
+    return null;
+  }
+}
+
+async function kvSet(key: string, value: string): Promise<boolean> {
+  const baseUrl = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+
+  if (!baseUrl || !token) {
+    console.warn('[KV] Missing credentials');
+    return false;
+  }
+
+  try {
+    console.log(`[KV SET] Storing key="${key}" (${value.length} chars)`);
+
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['SET', key, value]),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`[KV SET] HTTP ${response.status}: ${errorText}`);
+      return false;
+    }
+
+    const data = await response.json();
+    const success = data.result === 'OK';
+    console.log(`[KV SET] key="${key}" → ${success ? 'OK' : 'FAILED: ' + JSON.stringify(data)}`);
+    return success;
+  } catch (error) {
+    console.error('[KV SET] Error:', error);
+    return false;
+  }
+}
+
+/**
+ * 外国語が含まれているかチェック
+ * ラテン文字3文字以上、キリル文字、アラビア文字、デーバナーガリー文字を検出
+ */
+function containsForeignLanguage(text: string): boolean {
+  // ラテン文字（英語等）- 3文字以上連続
+  const latinPattern = /[A-Za-z]{3,}/;
+  // キリル文字（ロシア語）
+  const cyrillicPattern = /[\u0400-\u04FF]/;
+  // アラビア文字
+  const arabicPattern = /[\u0600-\u06FF\u0750-\u077F]/;
+  // デーバナーガリー文字（ヒンディー語）
+  const devanagariPattern = /[\u0900-\u097F]/;
+  // ウルドゥー語/ペルシア語の拡張アラビア文字
+  const urduPattern = /[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  // タイ文字
+  const thaiPattern = /[\u0E00-\u0E7F]/;
+  // ベトナム語（ラテン文字+声調記号）
+  const vietnamesePattern = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+  // 韓国語（ハングル）
+  const koreanPattern = /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/;
+  // 中国語（簡体字・繁体字）- 日本語と重複する漢字を除外するため、特定の中国語専用文字のみ
+  // ここでは明確に日本語でない中国語記号を検出
+  const chineseOnlyPattern = /[\u31C0-\u31EF]/; // CJK Strokes
+
+  return latinPattern.test(text) ||
+         cyrillicPattern.test(text) ||
+         arabicPattern.test(text) ||
+         devanagariPattern.test(text) ||
+         urduPattern.test(text) ||
+         thaiPattern.test(text) ||
+         vietnamesePattern.test(text) ||
+         koreanPattern.test(text) ||
+         chineseOnlyPattern.test(text);
+}
+
+/**
+ * 日本語以外の文字を含む文を検出・除去
+ * 許可: ひらがな、カタカナ、漢字、句読点、数字、記号、改行
+ */
+function sanitizeJapaneseText(text: string): string {
+  // 許可される文字パターン（日本語、数字、一般的な記号、改行）
+  // ひらがな: U+3040-U+309F
+  // カタカナ: U+30A0-U+30FF
+  // 漢字: U+4E00-U+9FAF
+  // 全角記号: U+3000-U+303F
+  // 半角・全角形: U+FF00-U+FFEF
+  // 追加の日本語記号: ー（長音）、々（繰り返し）
+  const japanesePattern = /^[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u3000-\u303F\uFF00-\uFFEF0-9、。！？「」『』（）・〜：；ー々\s\n\r]+$/;
+
+  // 文を句点で分割（句点、感嘆符、疑問符）
+  const sentences = text.split(/(?<=[。！？\n])/);
+
+  const cleanSentences = sentences.filter(sentence => {
+    const trimmed = sentence.trim();
+    if (!trimmed) return false;
+
+    // 外国語が含まれていないかチェック
+    if (containsForeignLanguage(trimmed)) {
+      console.log(`[Sanitize] Removing sentence with foreign language: "${trimmed.substring(0, 50)}..."`);
+      return false;
+    }
+
+    return true;
+  });
+
+  const result = cleanSentences.join('');
+
+  // 残った外国語文字を個別に除去（文の境界で分割できなかった場合のフォールバック）
+  const finalResult = result
+    .replace(/[A-Za-z]{3,}/g, '') // 英語単語を除去
+    .replace(/[\u0400-\u04FF]+/g, '') // キリル文字を除去
+    .replace(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]+/g, '') // アラビア文字を除去
+    .replace(/[\u0900-\u097F]+/g, '') // デーバナーガリーを除去
+    .replace(/[\u0E00-\u0E7F]+/g, '') // タイ文字を除去
+    .replace(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]+/g, '') // 韓国語を除去
+    .replace(/\./g, '。') // 英語のピリオドを日本語の句点に置換
+    .replace(/[ \t]{2,}/g, ' ') // 改行以外の連続空白のみを1つに
+    .trim();
+
+  return finalResult;
+}
+
+// Gemini REST API直接呼び出し用の関数
+async function callGeminiAPI(apiKey: string, prompt: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: prompt }]
+      }
+    ],
+    tools: [
+      {
+        googleSearch: {}
+      }
+    ]
+  };
+
+  console.log('[Gemini REST API] Calling API...');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('[Gemini REST API] Error response:', errorText);
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  console.log('[Gemini REST API] Response received');
+
+  // レスポンスからテキストを抽出
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return text;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,18 +307,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[Description API] Request received - placeId: ${placeId}, title: ${title}`);
+    console.log(`[Description API] Request received - placeId: "${placeId}", title: "${title}"`);
+
+    // placeIdを正規化（"places/" プレフィックスを除去して一貫性を保つ）
+    const normalizedPlaceId = placeId.replace(/^places\//, '');
+    console.log(`[Description API] Normalized placeId: "${normalizedPlaceId}"`);
 
     // Vercel KVからキャッシュをチェック
-    const cacheKey = `description:${placeId}`;
-    const cachedDescription = await kv.get<string>(cacheKey);
+    const cacheKey = `description:${normalizedPlaceId}`;
+    console.log(`[Description Cache] Checking cache with key: "${cacheKey}"`);
 
+    // REST API直接呼び出しでキャッシュをチェック
+    const cachedDescription = await kvGet(cacheKey);
     if (cachedDescription) {
-      console.log(`[Description Cache] HIT for ${placeId}`);
+      console.log(`[Description Cache] ✅ HIT for "${cacheKey}" (${cachedDescription.length} chars)`);
       return NextResponse.json({ description: cachedDescription, cached: true });
     }
-
-    console.log(`[Description Cache] MISS for ${placeId}, generating...`);
+    console.log(`[Description Cache] ❌ MISS for "${cacheKey}", generating...`);
 
     // Gemini APIキーの取得
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
@@ -44,186 +336,196 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    // 住所がある場合、最寄り駅情報を取得（ハルシネーション防止）
+    let stationInfo: NearestStationInfo | null = null;
+    if (address) {
+      const mapsApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      if (mapsApiKey) {
+        const coords = await geocodeAddress(address, mapsApiKey);
+        if (coords) {
+          stationInfo = await findNearestStation(coords.lat, coords.lng, mapsApiKey);
+        }
+      } else {
+        console.warn('[Station] GOOGLE_MAPS_API_KEY not configured, skipping station lookup');
+      }
+    }
 
-    // 改善されたプロンプト: 詳細な構造を維持しつつ日本語のみで記述
-    const prompt = `あなたは日本語で葬儀社の紹介文を書く専門ライターです。
+    // 最寄り駅情報をプロンプト用に整形
+    const stationInfoText = stationInfo
+      ? `最寄り駅: ${stationInfo.name}駅（徒歩約${stationInfo.walkingMinutes}分、約${stationInfo.distance}m）`
+      : '';
 
-【🚨 最重要ルール 🚨】
-絶対に日本語以外の言語を使用してはいけません:
-- ロシア語禁止: キリル文字（А-Я, а-я）は一切使用不可
-- 英語禁止: アルファベット単語（A-Z, a-z）の直接使用不可（必ずカタカナ化）
-- その他外国語禁止: 中国語、韓国語、フランス語、ドイツ語など
+    // プロンプト: 葬儀社スタッフが自社施設を紹介する自然な文章
+    const prompt = `あなたは「${title}」で働く広報担当者です。自社の施設をウェブサイトで紹介する文章を書いてください。
 
-【言語ルール（厳守）】
-1. 使用可能文字: ひらがな、カタカナ、漢字、句読点、記号（、。！？など）、数字（0-9）のみ
-2. 英単語はカタカナ表記: "family" → "ファミリー"、"hall" → "ホール"
-3. 外国語フレーズは日本語で言い換え: 必ず日本語の類義語・同義語を使用
-4. 数字・記号: 算用数字（0-9）、全角記号のみ使用可能
-5. 括弧表記: 必要な場合のみ全角括弧（）を使用
-6. 注意: ふりがなや括弧での読み仮名表記は不要（普通の文章として記述）
+■ 設定（この情報のみを使用してください）
+施設名: ${title}
+住所: ${address || '（住所不明）'}
+${stationInfoText}
 
-【入力情報】
-葬儀社名: ${title}
-住所: ${address || '不明'}
+■ 重要な制約（必ず守ってください）
+・最寄り駅情報は上記の「設定」に記載された情報のみを使用してください
+・設定に最寄り駅情報がない場合は、駅やアクセス時間について言及しないでください
+・駐車場台数、ホール収容人数、控室の数など、設定に記載されていない具体的な数字は絶対に書かないでください
+・推測や仮定に基づく情報は一切書かないでください
 
-【作業手順】
-1. 必ずWeb検索を実行して最新情報を収集
-2. 以下のルールに従って1000-2000文字の紹介文を作成
-3. 前置きや挨拶なしで、直接本文から書き始める
+■ あなたの役割
+この葬儀社で5年以上働いている広報担当。実際に施設のことをよく知っていて、お客様にも何度も説明してきた経験がある。自分の職場に愛着があり、良いところを伝えたいと思っている。
 
-【情報収集（必須）】
-Web検索で以下を必ず確認：
-- 正確な住所（番地まで）
-- アクセス方法（最寄り駅、所要時間、主要道路）
-- 駐車場台数
-- ホール収容人数
-- 設備詳細（安置室、控室、バリアフリー等）
-- 対応する葬儀形式
-- 運営会社名
-- 利用者の口コミ
+■ 文章のトーン
+・丁寧で落ち着いた敬語（堅すぎず、カジュアルすぎず）
+・「当施設」「私ども」という一人称を使う
+・「〜ございます」「〜しております」は適度に使用
 
-【文体ルール（厳守）】
+■ 絶対にダメな表現
+×「うちは」「うちの」（カジュアルすぎる）
+×「〜させていただいております」の連発
+×「心を込めて」「真心」「寄り添い」の多用
+×「皆様」の連発
+×「〜でしょう」「〜かもしれません」という推測
+× 長い一文（40文字以上は避ける）
+× 電話番号
+× 箇条書き
+× 英語（カタカナに変換: hall→ホール）
+× 設定に記載のない具体的な数字（駐車場◯台、収容◯名など）
 
-■絶対に出力してはいけない表現
-❌ 前置き文: 「了解いたしました」「承ります」「作成します」
-❌ 作業説明: 「まずはWeb検索で〜」「情報収集を行い〜」
-❌ 伝聞調: 「〜ようです」「〜そうです」「〜とのことです」
-❌ 推測形: 「〜でしょう」「〜かもしれません」
-❌ 過剰敬語: 「〜いただけます」「〜いただけるよう」を多用
-❌ 堅い動詞: 「位置します」「承ります」「ございます」「努めています」
-❌ 過剰な敬称: 「故人様」→「故人」、「お客様」→「ご家族」
-❌ 企業主語: 「弊社」「当社」「当ホール」
-❌ 機械的接続詞: 「まず」「次に」「そして」「最後に」
-❌ 説明前置き: 「〜について説明します」「〜をご紹介します」
-❌ 箇条書き: すべて段落で記述
-❌ 常套句の連発: 「寄り添い」「心を込めて」「心温まる」（各1回まで）
-❌ 電話番号の記載: 文中に電話番号を書かない
+■ 良い表現の例
+○「当施設は〜」「私どもは〜」
+○「〜となっております」「〜がございます」
+○「〜ですね」「〜です」（語尾のバリエーション）
+○ 設定に記載された情報のみ使用
+○ ご利用いただいた方からの声（一般的な内容）
 
-■推奨表現
-✅ 断定形: 「〜しています」「〜です」「〜できます」
-✅ カジュアルな動詞: 「あります」「います」「対応しています」
-✅ 説明口調: 「〜なんです」「〜んです」
-✅ シンプルな表現: 「安心です」「休めます」「過ごせます」
-✅ 具体的情報: 駅名、距離、台数、人数
-✅ リズム変化: 短文と長文を交互に配置
-✅ 主語の省略: 「〇〇は、」を連発しない
+■ 文体の比較
+ダメ: 「ご遺族の皆様に寄り添いながら、心を込めたサービスを提供させていただいております」
+良い: 「家族葬専門の施設として、一組一組のご家族とじっくり向き合うことを大切にしています」
 
-【構成（全12段落、見出しなし）】
+ダメ: 「うちは24時間対応です」
+良い: 「搬送は24時間対応しております。深夜でもスタッフが待機しておりますので、ご安心ください」
 
-第1段落: 場所とアクセス
-- 住所、最寄り駅と徒歩時間、主要道路
-- 駐車場台数
-例: 「〇〇は、△△区〜にあります。〜駅から徒歩〜分。駐車場は〜台分あります。」
+■ 構成（5〜6段落、段落間は空行）
 
-第2段落: 施設の基本情報
-- 収容人数、安置室の雰囲気
-例: 「ホールは〜名まで入る広さです。和室の安置室があって、〜」
+1段落目: 場所の紹介
+「${title}は〜にあります。」から始める。${stationInfo ? `設定にある最寄り駅（${stationInfo.name}駅、徒歩${stationInfo.walkingMinutes}分）を使用。` : '駅情報がないので、駅については言及しない。'}車でのアクセスは一般的な表現で。
 
-第3段落: 対応する葬儀形式
-- 家族葬、一日葬など対応
-- 家族葬は近しいご家族や親しい友人だけで行う形式
-例: 「家族葬、一日葬など対応しています。家族葬は近しいご家族や親しい友人だけで行う、心温まるお別れの形です。」
+2段落目: 施設の特徴
+建物の雰囲気、ホールの広さ、設備など。「当施設の特徴は〜」のような書き出し。
 
-第4段落: 宗教・宗派対応
-例: 「仏式、神式、キリスト教式に対応しています。すべての宗教や宗派で葬儀を行えるので、故人の信仰に合わせた形で執り行えます。」
+3段落目: 対応できる葬儀の種類
+家族葬、一般葬、宗教対応など。最近のニーズにも触れる。
 
-第5段落: 施設の特徴
-- バリアフリー、控室、貸切制度
-例: 「バリアフリー設計で〜。1日1件の貸切なので〜なんです。」
+4段落目: スタッフ・サービスの強み
+どのような点を大切にしているか、ご利用者からどのような声をいただいているか。
 
-第6段落: 営業時間・搬送（電話番号は書かない）
-例: 「搬送は24時間365日対応。いつでも連絡すれば〜」
+5段落目: 見学・相談について
+事前相談や見学のご案内。実際に足を運んでいただければ雰囲気がわかる、という誘導。
 
-第7段落: 口コミ・具体的サービス
-- 口コミを引用、または料理などの具体例
-例: 「『〜』という声をもらっています」「料理は〜と提携していて〜」
+6段落目: 締め
+1〜2文で自然に締める。
 
-第8段落: スタッフの姿勢（1-2文、控えめに）
-例: 「スタッフは〜を心がけています」
+■ 出力ルール
+・前置き禁止。「${title}は〜」で始める
+・段落間に空行を入れる
+・800〜1200文字
+・日本語のみ（英語禁止）
 
-第9段落: 見学会・事前相談
-例: 「見学会や事前相談も受け付けています。気軽に〜」
-
-第10段落: 葬儀後のサポート
-例: 「葬儀後の法事や〜の相談にも対応しています」
-
-第11段落: 地域の特徴
-例: 「〇〇区の〜な住宅街です。落ち着いた雰囲気で〜」
-
-第12段落: 締め（1-2文）
-例: 「〜を大切にした葬儀をサポートしています」
-
-【出力形式】
-- 前置き・挨拶・作業説明は一切書かない
-- いきなり第1段落から書き始める
-- 電話番号は書かない
-- 本文のみを出力する
-
-【品質チェック】
-□ 前置き文を書いていないか
-□ 電話番号を書いていないか
-□ 「〜いただけます」を多用していないか
-□ 「〜でしょう」を使っていないか
-□ 「故人様」「お客様」を多用していないか
-□ 「ようです」「そうです」を使っていないか
-□ 常套句を連発していないか
-□ 各段落が会話的で自然か
-□ 文の長さにリズムがあるか
-
-【重要】
-- 出力は紹介文の本文のみ。余計な説明や前置きは絶対に書かないこと。
-- すべての文章を日本語で記述すること。
-
-【最終確認（出力前に必ずチェック）】
-1. 文章全体をスキャンし、以下の文字が含まれていないか確認:
-   - キリル文字（ロシア語）: А, Б, В, Г, Д, Е, Ё, Ж, З, И, а, б, в, г, д, е, ё, ж, з, и など
-   - ラテン文字（英語）: A-Z, a-z （固有名詞を除く）
-   - ギリシャ文字: α, β, γ など
-   - その他外国語文字
-2. もし外国語が見つかった場合:
-   - ステップ1: 該当箇所を特定
-   - ステップ2: 適切な日本語表現に置き換える
-   - ステップ3: 文脈が自然になるよう調整
-3. 出力は100%日本語のみで構成されていることを再確認
-4. 最終チェック: 「ひらがな・カタカナ・漢字・句読点・記号・数字」以外が含まれていないこと
-
-【システム指示】
-以下の条件を満たさない出力は無効です:
-- 条件1: すべての文字が日本語（ひらがな・カタカナ・漢字）、句読点、記号、数字のみ
-- 条件2: ロシア語（キリル文字）、英語（アルファベット）、その他外国語を一切含まない
-- 条件3: 1000-2000文字の範囲内
-
-生成後、必ず上記3条件を満たしているか自己チェックを実行してください。`;
+Web検索で${title}の情報を確認してから書いてください。`;
 
     console.log(`[Gemini API] Generating description for ${title} with Grounding...`);
 
-    // Gemini API設定
-    const config: any = {
-      tools: [{ googleSearch: {} }]  // Grounding: Web検索を有効化
-    };
+    // 再生成ロジック: 外国語検出時は最大2回まで再試行
+    const MAX_RETRIES = 2;
+    let description: string = '';
+    let retryCount = 0;
+    let foreignLanguageDetected = false;
 
-    // Gemini API呼び出し
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
-      contents: prompt,
-      config
-    });
+    while (retryCount <= MAX_RETRIES) {
+      try {
+        const rawDescription = await callGeminiAPI(apiKey, prompt);
+        description = rawDescription.trim();
+        console.log(`[Gemini API] Raw generation successful, length: ${description.length} chars`);
 
-    const description = response.text?.trim() || '';
-    console.log(`[Gemini API] Generation successful, length: ${description.length} chars`);
+        // 外国語チェック
+        if (containsForeignLanguage(description)) {
+          foreignLanguageDetected = true;
+          console.warn(`[Description] Foreign language detected (attempt ${retryCount + 1}/${MAX_RETRIES + 1}), sanitizing...`);
 
-    if (!description || description.length < 500) {
-      console.warn(`[Description Generation] Generated text too short: ${description.length} chars`);
+          // サニタイズ処理
+          const sanitizedDescription = sanitizeJapaneseText(description);
+          console.log(`[Description] After sanitization: ${sanitizedDescription.length} chars (was ${description.length})`);
+
+          // サニタイズ後の文字数チェック
+          if (sanitizedDescription.length >= 500) {
+            description = sanitizedDescription;
+            console.log(`[Description] Sanitized description is valid, using it.`);
+            break;
+          } else if (retryCount < MAX_RETRIES) {
+            console.warn(`[Description] Sanitized text too short (${sanitizedDescription.length} chars), retrying...`);
+            retryCount++;
+            continue;
+          } else {
+            // 最大リトライ回数に達した場合、サニタイズ済みテキストを使用（短くても）
+            description = sanitizedDescription.length > 0 ? sanitizedDescription : description;
+            console.warn(`[Description] Max retries reached, using best available (${description.length} chars)`);
+            break;
+          }
+        } else {
+          // 外国語なし - そのまま使用
+          console.log(`[Description] No foreign language detected, using as-is.`);
+          break;
+        }
+      } catch (geminiError) {
+        console.error(`[Gemini API] Error calling API (attempt ${retryCount + 1}):`, geminiError);
+        if (retryCount >= MAX_RETRIES) {
+          throw geminiError;
+        }
+        retryCount++;
+      }
+    }
+
+    console.log(`[Gemini API] Final description length: ${description.length} chars, foreign_detected: ${foreignLanguageDetected}`);
+
+    // AIらしい前置き文を除去（Geminiが出力することがある）
+    const aiPreamblePatterns = [
+      /^はい[、。].{0,50}(取材記事|作成|書き|記事).{0,20}\n+/,
+      /^承知.{0,30}\n+/,
+      /^それでは.{0,50}\n+/,
+      /^以下.{0,30}(です|ます)[。\n]+/,
+      /^こんにちは.{0,50}\n+/,
+      /^.*の取材記事を(作成|書き).{0,20}\n+/,
+    ];
+
+    for (const pattern of aiPreamblePatterns) {
+      if (pattern.test(description)) {
+        const before = description.length;
+        description = description.replace(pattern, '');
+        console.log(`[Description] Removed AI preamble: ${before - description.length} chars removed`);
+      }
+    }
+
+    // 最終的なテキストクリーンアップ（常に実行）
+    description = description
+      .replace(/\./g, '。') // 英語のピリオドを句点に置換
+      .replace(/,/g, '、') // 英語のカンマを読点に置換
+      .replace(/\n{3,}/g, '\n\n') // 3つ以上の改行を2つに統一（段落区切りを保持）
+      .replace(/[ \t]{2,}/g, ' ') // 連続する空白（改行以外）を1つに
+      .trim();
+
+    if (!description || description.length < 300) {
+      console.warn(`[Description Generation] Final text too short: ${description.length} chars`);
       return NextResponse.json(
         { error: 'Generated description is too short' },
         { status: 500 }
       );
     }
 
-    // Vercel KVにキャッシュ（無期限）
-    await kv.set(cacheKey, description);
-    console.log(`[Description Cache] SET for ${placeId}, length: ${description.length} chars`);
+    // Vercel KVにキャッシュ（REST API直接呼び出し）
+    const cached = await kvSet(cacheKey, description);
+    if (cached) {
+      console.log(`[Description Cache] ✅ SET success for "${cacheKey}", length: ${description.length} chars`);
+    } else {
+      console.warn(`[Description Cache] ⚠️ SET failed for "${cacheKey}"`);
+    }
 
     return NextResponse.json({ description, cached: false });
 

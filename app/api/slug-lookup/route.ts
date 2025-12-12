@@ -8,35 +8,70 @@ import { kv } from '@vercel/kv';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * GET /api/slug-lookup?slug={slug}
- * slugからplaceIdを取得
+ * GET /api/slug-lookup?slug={slug} または ?prefix={prefix}
+ * slugまたはplaceIdプレフィックスからplaceIdを取得
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const slug = searchParams.get('slug');
+    const prefix = searchParams.get('prefix');
 
-    if (!slug) {
+    if (!slug && !prefix) {
       return NextResponse.json(
-        { error: 'slug parameter is required' },
+        { error: 'slug or prefix parameter is required' },
         { status: 400 }
       );
     }
 
-    console.log(`[Slug Lookup API] Request for slug: ${slug}`);
+    // プレフィックス検索（最優先）
+    if (prefix) {
+      console.log(`[Slug Lookup API] Request for prefix: ${prefix}`);
 
-    // Vercel KVからslug → placeId マッピングを取得
-    const cacheKey = `slug:${slug}`;
-    const placeId = await kv.get<string>(cacheKey);
+      try {
+        const prefixKey = `prefix:${prefix.toLowerCase()}`;
+        const placeId = await kv.get<string>(prefixKey);
 
-    if (placeId) {
-      console.log(`[Slug Lookup API] HIT - slug: ${slug} → placeId: ${placeId}`);
-      return NextResponse.json({ slug, placeId, cached: true });
+        if (placeId) {
+          console.log(`[Slug Lookup API] HIT - prefix: ${prefix} → placeId: ${placeId}`);
+          return NextResponse.json({ prefix, placeId, cached: true });
+        }
+
+        console.log(`[Slug Lookup API] MISS - prefix: ${prefix} not found in cache`);
+      } catch (kvError) {
+        console.warn(`[Slug Lookup API] KV error for prefix lookup:`, kvError);
+      }
+
+      // prefixのみ指定でKVに見つからない場合は404
+      if (!slug) {
+        return NextResponse.json(
+          { error: 'Prefix not found in cache' },
+          { status: 404 }
+        );
+      }
     }
 
-    console.log(`[Slug Lookup API] MISS - slug: ${slug} not found in cache`);
+    // slug検索
+    if (slug) {
+      console.log(`[Slug Lookup API] Request for slug: ${slug}`);
+
+      try {
+        const cacheKey = `slug:${slug}`;
+        const placeId = await kv.get<string>(cacheKey);
+
+        if (placeId) {
+          console.log(`[Slug Lookup API] HIT - slug: ${slug} → placeId: ${placeId}`);
+          return NextResponse.json({ slug, placeId, cached: true });
+        }
+
+        console.log(`[Slug Lookup API] MISS - slug: ${slug} not found in cache`);
+      } catch (kvError) {
+        console.warn(`[Slug Lookup API] KV error for slug lookup:`, kvError);
+      }
+    }
+
     return NextResponse.json(
-      { error: 'Slug not found in cache' },
+      { error: 'Not found in cache' },
       { status: 404 }
     );
 
@@ -55,11 +90,12 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/slug-lookup
  * slug → placeId マッピングを保存
+ * 追加: suffix（placeIdプレフィックス8文字）→ placeId マッピングも保存
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slug, placeId } = body;
+    const { slug, placeId, suffix } = body;
 
     if (!slug || !placeId) {
       return NextResponse.json(
@@ -71,12 +107,26 @@ export async function POST(request: NextRequest) {
     console.log(`[Slug Lookup API] Saving mapping: slug: ${slug} → placeId: ${placeId}`);
 
     // Vercel KVにslug → placeId マッピングを保存
-    const cacheKey = `slug:${slug}`;
-    await kv.set(cacheKey, placeId);
+    try {
+      const cacheKey = `slug:${slug}`;
+      await kv.set(cacheKey, placeId);
+      console.log(`[Slug Lookup API] Successfully saved slug mapping: ${slug} → ${placeId}`);
+    } catch (kvError) {
+      console.warn(`[Slug Lookup API] Failed to save slug mapping:`, kvError);
+    }
 
-    console.log(`[Slug Lookup API] Successfully saved mapping: ${slug} → ${placeId}`);
+    // suffix（placeIdプレフィックス）→ placeId マッピングも保存
+    if (suffix) {
+      try {
+        const prefixKey = `prefix:${suffix.toLowerCase()}`;
+        await kv.set(prefixKey, placeId);
+        console.log(`[Slug Lookup API] Successfully saved prefix mapping: ${suffix} → ${placeId}`);
+      } catch (kvError) {
+        console.warn(`[Slug Lookup API] Failed to save prefix mapping:`, kvError);
+      }
+    }
 
-    return NextResponse.json({ slug, placeId, success: true });
+    return NextResponse.json({ slug, placeId, suffix, success: true });
 
   } catch (error) {
     console.error('[Slug Lookup API] Error:', error);
