@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './index.css'
+import { OrganizationSchema } from './components/StructuredData'
 
 // メタデータベースURL設定(OGP画像などの絶対URLに使用)
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://sougifinder.vercel.app';
@@ -62,6 +63,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
+      <head>
+        <OrganizationSchema />
+      </head>
       <body className="bg-slate-50 text-slate-800">{children}</body>
     </html>
   )

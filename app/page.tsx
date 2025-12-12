@@ -17,6 +17,7 @@ import {
   saveSlugPlaceIdMapping,
   generateFacilitySlugAsync
 } from './utils/urlHelpers';
+import { WebSiteSchema } from './components/StructuredData';
 
 type SearchTab = 'nearby' | 'manual' | 'prefecture';
 type ViewMode = 'list' | 'map';
@@ -147,7 +148,9 @@ export default function HomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+    <>
+      <WebSiteSchema />
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
       <div className="w-full max-w-4xl mx-auto">
         <header className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-2">
@@ -222,5 +225,6 @@ export default function HomePage() {
         </main>
       </div>
     </div>
+    </>
   );
 }

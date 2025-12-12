@@ -62,6 +62,7 @@ export async function generateStaticParams() {
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { region } = await params;
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://sougifinder.vercel.app';
 
   // 地域名の判定
   let displayRegion = region;
@@ -72,18 +73,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     displayRegion = decodeURIComponent(region);
   }
 
+  // タイトル最適化: 32文字以内
   const title = `${displayRegion}の葬儀社一覧`;
-  const description = `${displayRegion}の葬儀社を検索。施設の詳細情報、口コミ、評価、アクセス情報をご確認いただけます。`;
+  // Description最適化: 120文字以内
+  const description = `${displayRegion}の葬儀社を比較・検索。口コミ・料金・アクセス情報を確認して最適な葬儀社を見つけましょう。`;
 
   return {
     title,
     description,
-    keywords: ['葬儀社', displayRegion, '葬儀', '家族葬', '一覧', '検索'],
+    keywords: ['葬儀社', displayRegion, '葬儀', '家族葬', '一覧', '比較', '口コミ'],
+    alternates: {
+      canonical: `${baseUrl}/list/${region}`,
+    },
     openGraph: {
       title,
       description,
       type: 'website',
       locale: 'ja_JP',
+      url: `${baseUrl}/list/${region}`,
     },
     twitter: {
       card: 'summary',

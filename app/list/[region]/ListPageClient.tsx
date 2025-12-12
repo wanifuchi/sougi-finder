@@ -9,6 +9,8 @@ import {
   loadSearchResults,
   generateFacilitySlugFromPlaceId
 } from '../../utils/urlHelpers';
+import { ItemListSchema } from '../../components/StructuredData';
+import { Breadcrumb } from '../../components/Breadcrumb';
 
 type ViewMode = 'list' | 'map';
 
@@ -125,8 +127,24 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
     );
   }
 
+  // ItemListSchema用のデータ生成
+  const itemListData = facilities.map((facility) => ({
+    name: facility.title,
+    url: `/detail/${generateFacilitySlugFromPlaceId(facility.placeId || '')}`,
+    image: facility.photoUrl,
+    description: facility.address,
+  }));
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+    <>
+      {/* ItemList構造化データ */}
+      {facilities.length > 0 && (
+        <ItemListSchema
+          items={itemListData}
+          listName={`${regionName}の葬儀社一覧`}
+        />
+      )}
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-6 lg:p-8">
       {/* ナビゲーション中のローディングオーバーレイ */}
       {isNavigating && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -140,6 +158,13 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
         </div>
       )}
       <div className="w-full max-w-4xl mx-auto">
+        {/* パンくずリスト */}
+        <Breadcrumb
+          items={[
+            { name: `${regionName}の葬儀社`, url: '#' },
+          ]}
+        />
+
         {/* ヘッダー */}
         <header className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-2">
@@ -207,5 +232,6 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
         </main>
       </div>
     </div>
+    </>
   );
 };

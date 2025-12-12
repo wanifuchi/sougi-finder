@@ -21,6 +21,8 @@ import {
     YenIcon
 } from '../../components/Icons';
 import { StarRating } from '../../components/StarRating';
+import { LocalBusinessSchema } from '../../components/StructuredData';
+import { Breadcrumb } from '../../components/Breadcrumb';
 
 interface DetailPageClientProps {
   facility: SearchResult;
@@ -141,41 +143,30 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
     }
   };
 
-  // JSON-LD構造化データの生成(SEO最適化)
-  const generateStructuredData = () => {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://sougifinder.vercel.app';
-
-    return {
-      '@context': 'https://schema.org',
-      '@type': 'LocalBusiness',
-      name: facility.title,
-      description: description || `${facility.title}の施設情報`,
-      address: facility.address ? {
-        '@type': 'PostalAddress',
-        addressCountry: 'JP',
-        addressLocality: facility.address,
-      } : undefined,
-      telephone: facility.phone,
-      url: facility.website,
-      aggregateRating: facility.rating ? {
-        '@type': 'AggregateRating',
-        ratingValue: facility.rating,
-        reviewCount: facility.reviewCount || 0,
-      } : undefined,
-      image: facility.photoUrls?.[0] ? `${baseUrl}${facility.photoUrls[0]}` : undefined,
-      priceRange: getPriceRangeText(facility.priceLevel),
-    };
-  };
-
   return (
     <>
-      {/* JSON-LD構造化データ */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(generateStructuredData()) }}
+      {/* JSON-LD構造化データ（FuneralHome スキーマ） */}
+      <LocalBusinessSchema
+        name={facility.title}
+        description={description}
+        address={facility.address}
+        telephone={facility.phone}
+        url={facility.website}
+        image={facility.photoUrls}
+        rating={facility.rating}
+        reviewCount={facility.reviewCount}
+        priceRange={getPriceRangeText(facility.priceLevel)}
+        openingHours={facility.openingHours}
       />
 
       <div className="container mx-auto px-4 py-6 max-w-4xl">
+        {/* パンくずリスト */}
+        <Breadcrumb
+          items={[
+            { name: facility.title, url: '#' },
+          ]}
+        />
+
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
       <div className="p-4 border-b border-slate-200">
         <button
@@ -188,9 +179,9 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
       </div>
 
       <div className="p-6">
-        <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 leading-tight">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 leading-tight">
           {facility.title}
-        </h2>
+        </h1>
         {typeof facility.rating === 'number' && typeof facility.reviewCount === 'number' && facility.reviewCount > 0 && (
           <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
             <StarRating rating={facility.rating} />

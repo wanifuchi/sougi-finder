@@ -185,6 +185,7 @@ async function getFacilityData(slug: string): Promise<SearchResult | null> {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const facility = await getFacilityData(slug);
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://sougifinder.vercel.app';
 
   if (!facility) {
     return {
@@ -193,20 +194,33 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
-  const title = `${facility.title} - 葬儀社詳細`;
+  // 都道府県を住所から抽出
+  const prefectureMatch = facility.address?.match(/^(.+?[都道府県])/);
+  const prefecture = prefectureMatch ? prefectureMatch[1] : '';
+
+  // タイトル最適化: 32文字以内
+  const title = prefecture
+    ? `${facility.title} | ${prefecture}の葬儀社`
+    : `${facility.title} | 葬儀社詳細`;
+
+  // Description最適化: 120文字以内、地域名を先頭に
   const description = facility.description
-    ? facility.description.substring(0, 160)
-    : `${facility.title}の詳細情報。${facility.address || ''}${facility.phone ? ` TEL: ${facility.phone}` : ''}`;
+    ? facility.description.substring(0, 120)
+    : `${prefecture || ''}${facility.title}の詳細情報・口コミ・料金。${facility.address || ''}`;
 
   return {
     title,
     description,
-    keywords: ['葬儀社', facility.title, facility.address?.split(/[都道府県市区町村]/)[0] || '', '葬儀', '家族葬'],
+    keywords: ['葬儀社', facility.title, prefecture, '葬儀', '家族葬', '口コミ', '料金'],
+    alternates: {
+      canonical: `${baseUrl}/detail/${slug}`,
+    },
     openGraph: {
       title,
       description,
       type: 'website',
       locale: 'ja_JP',
+      url: `${baseUrl}/detail/${slug}`,
       images: facility.photoUrl ? [{ url: facility.photoUrl, width: 1200, height: 630 }] : [],
     },
     twitter: {
