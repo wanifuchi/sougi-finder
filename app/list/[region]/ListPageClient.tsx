@@ -173,9 +173,9 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
               className="flex items-center gap-3 hover:opacity-80 transition-opacity"
             >
               <LogoIcon className="w-10 h-10 text-slate-600" />
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-800">
+              <span className="text-3xl sm:text-4xl font-bold text-slate-800">
                 葬儀社ファインダー
-              </h1>
+              </span>
             </button>
           </div>
           <p className="text-slate-500">日本の葬儀社を地図で探す</p>
@@ -194,7 +194,7 @@ export const ListPageClient: React.FC<ListPageClientProps> = ({ region }) => {
               <MapPinIcon className="w-5 h-5" />
               <span className="text-sm font-medium">地域</span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 mb-2">{regionName}</h2>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 mb-2">{regionName}の葬儀社</h1>
             <p className="text-slate-600">
               {facilities.length > 0
                 ? `${facilities.length}件の施設が見つかりました`

@@ -306,7 +306,7 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
         </div>
 
         <div className="border-t border-slate-200 pt-6">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">施設情報</h3>
+          <h2 className="text-lg font-semibold text-slate-800 mb-4">施設情報</h2>
           <ul className="space-y-4 text-slate-700">
             {facility.address && (
               <li className="flex items-start gap-4">
@@ -447,10 +447,10 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
         
         {/* 利用者の声 Section */}
         <div className="border-t border-slate-200 pt-6">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <ChatBubbleLeftEllipsisIcon className="w-6 h-6 text-slate-500" />
             利用者の声
-          </h3>
+          </h2>
           {facility.detailedReviews && facility.detailedReviews.length > 0 ? (
             <div className="space-y-4">
               {facility.detailedReviews.map((review, index) => (
@@ -497,10 +497,10 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
         {/* 施設について Section */}
         {(description || isLoadingDescription) && (
           <div className="border-t border-slate-200 pt-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <BuildingOfficeIcon className="w-6 h-6 text-slate-500" />
               施設について
-            </h3>
+            </h2>
             {isLoadingDescription ? (
               <div className="space-y-3">
                 <div className="h-4 bg-slate-200 rounded animate-pulse"></div>
@@ -562,10 +562,10 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
         {/* オーナー情報 Section */}
         {facility.ownerInfo && (facility.ownerInfo.message || (facility.ownerInfo.posts && facility.ownerInfo.posts.length > 0)) && (
           <div className="border-t border-slate-200 pt-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <UserIcon className="w-6 h-6 text-slate-500" />
               オーナー情報
-            </h3>
+            </h2>
             <div className="space-y-4">
               {/* オーナーからのメッセージ */}
               {facility.ownerInfo.message && (

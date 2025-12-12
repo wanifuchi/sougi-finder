@@ -22,6 +22,21 @@ interface RegionData {
   lineIds?: string[];
 }
 
+/**
+ * ローマ字スラッグから日本語地域名を取得
+ * regions.jsonの逆引き検索
+ */
+function getJapaneseRegionName(romajiSlug: string): string {
+  for (const [japaneseName, data] of Object.entries(regionsData)) {
+    const regionData = data as RegionData;
+    if (regionData.romaji === romajiSlug) {
+      return japaneseName;
+    }
+  }
+  // 見つからない場合はURLデコードして返す
+  return decodeURIComponent(romajiSlug);
+}
+
 // 動的パラメータの型定義 (Next.js 15+ では params は Promise)
 type Props = {
   params: Promise<{ region: string }>;
@@ -64,13 +79,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { region } = await params;
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://sougifinder.vercel.app';
 
-  // 地域名の判定
+  // 地域名の判定（ローマ字→日本語変換）
   let displayRegion = region;
   if (region === 'current') {
     displayRegion = '現在地周辺';
   } else {
-    // URLエンコードされたスラッグから読みやすい形式に変換
-    displayRegion = decodeURIComponent(region);
+    // ローマ字スラッグから日本語地域名に変換
+    displayRegion = getJapaneseRegionName(region);
   }
 
   // タイトル最適化: 32文字以内
