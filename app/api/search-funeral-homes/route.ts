@@ -1,3 +1,4 @@
+// API Key rotated: 2024-12-13
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@vercel/kv';
