@@ -5,7 +5,13 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { kv } from '@vercel/kv';
+import { createClient } from '@vercel/kv';
+
+// Vercel KVクライアントを明示的に作成
+const kv = createClient({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
 
 // キャッシュ用の型定義
 interface CachedPlaceDetails {

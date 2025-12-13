@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
-import { kv } from '@vercel/kv';
+import { createClient } from '@vercel/kv';
 import type { GroundingChunk, SearchResult } from '@/app/types';
+
+// Vercel KVクライアントを明示的に作成
+const kv = createClient({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
 
 // キャッシュ用の型定義
 interface CachedSearchResult {
