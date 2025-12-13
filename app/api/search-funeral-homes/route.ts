@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { kv } from '@vercel/kv';
 import type { GroundingChunk, SearchResult } from '@/app/types';
+
+// キャッシュ用の型定義
+interface CachedSearchResult {
+  results: SearchResult[];
+  query: string;
+  timestamp: number;
+  count: number;
+}
+
+// キャッシュTTL: 7日間（秒）
+const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 604800秒
 
 interface Position {
   latitude: number;
@@ -134,6 +146,18 @@ const parseDetailsFromMarkdown = (markdown: string): Map<string, ParsedDetails> 
   return detailsMap;
 };
 
+/**
+ * 検索クエリからキャッシュキーを生成
+ * 日本語のまま正規化（小文字化、空白除去）
+ */
+function generateCacheKey(query: string): string {
+  const normalized = query
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ''); // 空白を除去
+  return `search:${normalized}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -144,6 +168,30 @@ export async function POST(request: NextRequest) {
         { error: 'Query is required' },
         { status: 400 }
       );
+    }
+
+    // === キャッシュチェック ===
+    // 現在地検索（positionあり）はキャッシュしない（位置が毎回異なるため）
+    const cacheKey = generateCacheKey(query);
+    let cacheReadError: string | null = null;
+    if (!position) {
+      try {
+        const cached = await kv.get<CachedSearchResult>(cacheKey);
+        if (cached) {
+          console.log(`✅ [Cache HIT] key=${cacheKey}, count=${cached.count}, age=${Math.round((Date.now() - cached.timestamp) / 1000 / 60)}分`);
+          return NextResponse.json({
+            places: cached.results,
+            cached: true,
+            cacheAge: Date.now() - cached.timestamp,
+            _debug: { cacheKey, cacheReadError: null }
+          });
+        }
+        console.log(`⏳ [Cache MISS] key=${cacheKey}`);
+      } catch (cacheError: any) {
+        console.warn('[Cache Read Error]', cacheError);
+        cacheReadError = cacheError?.message || 'Unknown cache read error';
+        // キャッシュエラーは無視して検索を続行
+      }
     }
 
     const apiKey = process.env.VITE_GEMINI_API_KEY;
@@ -354,7 +402,35 @@ Googleマップで見つかった各施設について、以下の情報を厳�
       console.log(`  ${i + 1}. "${place.title}" → ${place.placeId || 'undefined'}`);
     });
 
-    return NextResponse.json({ places: placesWithoutPhotos });
+    // === キャッシュ保存 ===
+    // 現在地検索でなく、結果がある場合のみキャッシュ
+    let cacheWriteError: string | null = null;
+    if (!position && placesWithoutPhotos.length > 0) {
+      try {
+        const cacheData: CachedSearchResult = {
+          results: placesWithoutPhotos,
+          query: query,
+          timestamp: Date.now(),
+          count: placesWithoutPhotos.length
+        };
+        await kv.set(cacheKey, cacheData, { ex: CACHE_TTL_SECONDS });
+        console.log(`💾 [Cache SAVE] key=${cacheKey}, count=${placesWithoutPhotos.length}, TTL=${CACHE_TTL_SECONDS}秒`);
+      } catch (cacheError: any) {
+        console.warn('[Cache Write Error]', cacheError);
+        cacheWriteError = cacheError?.message || 'Unknown cache write error';
+        // キャッシュエラーは無視して結果を返す
+      }
+    }
+
+    return NextResponse.json({
+      places: placesWithoutPhotos,
+      _debug: {
+        cacheKey,
+        cacheReadError,
+        cacheWriteError,
+        positionProvided: !!position
+      }
+    });
 
   } catch (error: any) {
     console.error('[Gemini API Error]', error);
