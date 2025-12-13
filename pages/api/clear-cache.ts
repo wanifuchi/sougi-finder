@@ -26,19 +26,19 @@ export default async function handler(
     const searchKeys: string[] = [];
     const placeKeys: string[] = [];
 
-    let cursor = 0;
+    let cursor: number | string = 0;
     do {
       const result = await kv.scan(cursor, { match: 'search:*', count: 100 });
       cursor = result[0];
       searchKeys.push(...result[1]);
-    } while (cursor !== 0);
+    } while (cursor !== 0 && cursor !== '0');
 
     cursor = 0;
     do {
       const result = await kv.scan(cursor, { match: 'place:*', count: 100 });
       cursor = result[0];
       placeKeys.push(...result[1]);
-    } while (cursor !== 0);
+    } while (cursor !== 0 && cursor !== '0');
 
     // 削除
     let deletedCount = 0;
