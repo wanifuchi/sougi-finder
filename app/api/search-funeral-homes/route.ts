@@ -408,19 +408,71 @@ Googleマップで見つかった各施設について、以下の情報を厳�
       console.log(`  ${i + 1}. "${place.title}" → ${place.placeId || 'undefined'}`);
     });
 
+    // === 施設詳細を取得してマージ ===
+    // キャッシュ保存前に写真・レビュー等の詳細情報を取得
+    const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+    const placesWithDetails = await Promise.all(
+      placesWithoutPhotos.map(async (place) => {
+        if (!place.placeId || !googleMapsApiKey) return place;
+
+        try {
+          const cleanPlaceId = place.placeId.replace('places/', '');
+          const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${cleanPlaceId}&fields=name,formatted_address,formatted_phone_number,photos,reviews,website,business_status,price_level,opening_hours,wheelchair_accessible_entrance,rating,user_ratings_total&language=ja&key=${googleMapsApiKey}`;
+
+          const detailsResponse = await fetch(detailsUrl);
+          const detailsData = await detailsResponse.json();
+
+          if (detailsData.status !== 'OK') {
+            console.warn(`[Place Details] Failed for ${place.title}: ${detailsData.status}`);
+            return place;
+          }
+
+          const details = detailsData.result;
+
+          // 写真URLを生成
+          const photoUrls = details.photos
+            ? details.photos.map((photo: any) => {
+                return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photo.photo_reference}&key=${googleMapsApiKey}`;
+              })
+            : [];
+
+          console.log(`✅ [Place Details] ${place.title}: ${photoUrls.length} photos, ${details.reviews?.length || 0} reviews`);
+
+          return {
+            ...place,
+            title: details.name || place.title, // Places APIの公式名で上書き
+            photoUrl: photoUrls[0],
+            photoUrls,
+            detailedReviews: details.reviews || [],
+            website: details.website,
+            businessStatus: details.business_status,
+            priceLevel: details.price_level,
+            openingHours: details.opening_hours,
+            wheelchairAccessible: details.wheelchair_accessible_entrance,
+          };
+        } catch (err) {
+          console.warn(`[Place Details Error] ${place.title}:`, err);
+          return place;
+        }
+      })
+    );
+
+    console.log(`📊 [With Details] ${placesWithDetails.filter(p => p.photoUrls && p.photoUrls.length > 0).length}/${placesWithDetails.length} places have photos`);
+
     // === キャッシュ保存 ===
-    // 現在地検索でなく、結果がある場合のみキャッシュ
+    // 現在地検索でなく、結果がある場合のみキャッシュ（詳細情報込み）
     let cacheWriteError: string | null = null;
-    if (!position && placesWithoutPhotos.length > 0) {
+    if (!position && placesWithDetails.length > 0) {
       try {
         const cacheData: CachedSearchResult = {
-          results: placesWithoutPhotos,
+          results: placesWithDetails,
           query: query,
           timestamp: Date.now(),
-          count: placesWithoutPhotos.length
+          count: placesWithDetails.length
         };
         await kv.set(cacheKey, cacheData, { ex: CACHE_TTL_SECONDS });
-        console.log(`💾 [Cache SAVE] key=${cacheKey}, count=${placesWithoutPhotos.length}, TTL=${CACHE_TTL_SECONDS}秒`);
+        console.log(`💾 [Cache SAVE] key=${cacheKey}, count=${placesWithDetails.length}, TTL=${CACHE_TTL_SECONDS}秒 (with details)`);
       } catch (cacheError: any) {
         console.warn('[Cache Write Error]', cacheError);
         cacheWriteError = cacheError?.message || 'Unknown cache write error';
@@ -429,7 +481,7 @@ Googleマップで見つかった各施設について、以下の情報を厳�
     }
 
     return NextResponse.json({
-      places: placesWithoutPhotos,
+      places: placesWithDetails,
       _debug: {
         cacheKey,
         cacheReadError,
