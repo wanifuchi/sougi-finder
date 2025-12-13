@@ -7,7 +7,8 @@ import type { Review } from '../types';
 
 interface PlaceDetailsResponse {
   name?: string; // 公式な日本語名
-  photoUrls?: string[];
+  photoUrls?: string[];  // @deprecated - レガシー
+  photoRefs?: string[];  // セキュア版
   reviews?: Review[];
   photosCount?: number;
   reviewsCount?: number;
@@ -36,7 +37,8 @@ export const getPlaceDetails = async (
   address?: string
 ): Promise<{
   name?: string; // 公式な日本語名
-  photoUrls: string[];
+  photoUrls: string[];  // @deprecated
+  photoRefs: string[];  // セキュア版
   photoUrl?: string;
   detailedReviews: Review[];
   website?: string;
@@ -54,19 +56,21 @@ export const getPlaceDetails = async (
 
     if (!response.ok) {
       console.warn(`Failed to fetch details for place ${placeId}: ${response.status}`);
-      return { photoUrls: [], detailedReviews: [] };
+      return { photoUrls: [], photoRefs: [], detailedReviews: [] };
     }
 
     const data: PlaceDetailsResponse = await response.json();
 
-    const photoUrls = data.photoUrls || [];
+    const photoRefs = data.photoRefs || [];
+    const photoUrls = data.photoUrls || [];  // レガシー互換
     const detailedReviews = data.reviews || [];
 
-    console.log(`✓ Place details fetched for ${placeId}: ${photoUrls.length} photos, ${detailedReviews.length} reviews`);
+    console.log(`✓ Place details fetched for ${placeId}: ${photoRefs.length} photoRefs, ${detailedReviews.length} reviews`);
 
     return {
       name: data.name, // 公式な日本語名
-      photoUrls,
+      photoRefs,  // セキュア版
+      photoUrls,  // レガシー互換
       photoUrl: photoUrls[0], // 後方互換性のため最初の写真を設定
       detailedReviews,
       website: data.website,
@@ -78,7 +82,7 @@ export const getPlaceDetails = async (
 
   } catch (error) {
     console.error(`Error fetching details for place ${placeId}:`, error);
-    return { photoUrls: [], detailedReviews: [] };
+    return { photoUrls: [], photoRefs: [], detailedReviews: [] };
   }
 };
 

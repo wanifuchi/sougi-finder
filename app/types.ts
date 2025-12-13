@@ -30,7 +30,8 @@ export interface SearchResult {
   uri: string;
   placeId?: string;
   photoUrl?: string;
-  photoUrls?: string[];
+  photoUrls?: string[];  // @deprecated - 使用禁止（APIキー漏洩リスク）
+  photoRefs?: string[];  // photo_reference のみ（セキュア）
   address?: string;
   phone?: string;
   rating?: number;

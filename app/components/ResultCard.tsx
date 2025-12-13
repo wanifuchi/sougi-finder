@@ -2,6 +2,7 @@ import React from 'react';
 import type { SearchResult } from '../types';
 import { BuildingOfficeIcon, PhoneIcon, MapIcon, InfoIcon } from './Icons';
 import { StarRating } from './StarRating';
+import { getFirstPhotoUrl } from '../utils/photoUrl';
 
 interface ResultCardProps {
   result: SearchResult;
@@ -11,13 +12,14 @@ interface ResultCardProps {
 
 export const ResultCard: React.FC<ResultCardProps> = ({ result, onFocusOnMap, onSelectResult }) => {
   const mapQuery = result.address ? `${result.title}, ${result.address}` : result.title;
+  const photoUrl = getFirstPhotoUrl(result);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 flex flex-col h-full overflow-hidden">
       <div className="aspect-w-16 aspect-h-9 border-b border-slate-200 bg-slate-100" style={{ height: '150px' }}>
-        {result.photoUrl ? (
+        {photoUrl ? (
           <img
-            src={result.photoUrl}
+            src={photoUrl}
             alt={result.title}
             className="w-full h-full object-cover"
             loading="lazy"

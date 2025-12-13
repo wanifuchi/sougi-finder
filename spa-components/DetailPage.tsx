@@ -18,6 +18,7 @@ import {
     YenIcon
 } from './Icons';
 import { StarRating } from './StarRating';
+import { getAllPhotoUrls } from '../app/utils/photoUrl';
 
 interface DetailPageProps {
   result: SearchResult;
@@ -30,7 +31,8 @@ export const DetailPage: React.FC<DetailPageProps> = ({ result, onBack }) => {
 
   // カルーセル用の状態管理
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const photoUrls = result.photoUrls || [];
+  // photoRefs→プロキシURL変換（セキュア）またはphotoUrls（レガシー）
+  const photoUrls = getAllPhotoUrls(result);
   const hasPhotos = photoUrls.length > 0;
 
   // 施設紹介文の状態管理

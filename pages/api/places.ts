@@ -92,12 +92,9 @@ export default async function handler(
 
     const place = detailsData.result;
 
-    // 写真URLの配列を取得
-    const photoUrls: string[] = place.photos
-      ? place.photos.map((photo: any) => {
-          const photoReference = photo.photo_reference;
-          return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${apiKey}`;
-        })
+    // 写真リファレンスの配列を取得（APIキーは含めない - セキュリティ対策）
+    const photoRefs: string[] = place.photos
+      ? place.photos.map((photo: any) => photo.photo_reference)
       : [];
 
     // レビュー情報を取得
@@ -115,8 +112,8 @@ export default async function handler(
       wheelchairAccessible: place.wheelchair_accessible_entrance,
       rating: place.rating,
       userRatingsTotal: place.user_ratings_total,
-      photoUrls,
-      photosCount: photoUrls.length,
+      photoRefs,  // APIキーなしのリファレンスのみ
+      photosCount: photoRefs.length,
       reviews,
       reviewsCount: reviews.length,
       placeId,

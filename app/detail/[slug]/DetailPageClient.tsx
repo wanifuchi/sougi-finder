@@ -23,6 +23,7 @@ import {
 import { StarRating } from '../../components/StarRating';
 import { LocalBusinessSchema } from '../../components/StructuredData';
 import { Breadcrumb } from '../../components/Breadcrumb';
+import { getAllPhotoUrls } from '../../utils/photoUrl';
 
 interface DetailPageClientProps {
   facility: SearchResult;
@@ -35,7 +36,8 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
 
   // カルーセル用の状態管理
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const photoUrls = facility.photoUrls || [];
+  // photoRefs→プロキシURL変換（セキュア）またはphotoUrls（レガシー）
+  const photoUrls = getAllPhotoUrls(facility);
   const hasPhotos = photoUrls.length > 0;
 
   // 施設紹介文の状態管理
@@ -152,7 +154,7 @@ export function DetailPageClient({ facility }: DetailPageClientProps) {
         address={facility.address}
         telephone={facility.phone}
         url={facility.website}
-        image={facility.photoUrls}
+        image={photoUrls}
         rating={facility.rating}
         reviewCount={facility.reviewCount}
         priceRange={getPriceRangeText(facility.priceLevel)}

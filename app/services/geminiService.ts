@@ -27,7 +27,8 @@ export const searchFuneralHomes = async (
   const { places: placesFromApi, cached } = await response.json();
 
   // キャッシュヒット時は詳細情報が含まれているのでそのまま返す
-  if (cached && placesFromApi.length > 0 && placesFromApi[0].photoUrls) {
+  // photoRefs（セキュア版）またはphotoUrls（レガシー）をチェック
+  if (cached && placesFromApi.length > 0 && (placesFromApi[0].photoRefs || placesFromApi[0].photoUrls)) {
     console.log(`[Cache HIT] Returning ${placesFromApi.length} places with details (no additional API calls)`);
     return placesFromApi as SearchResult[];
   }
@@ -39,7 +40,7 @@ export const searchFuneralHomes = async (
   const places: SearchResult[] = await Promise.all(
     placesFromApi.map(async (place: any) => {
       // すでに詳細が含まれている場合（キャッシュヒット時）はスキップ
-      if (place.photoUrls && place.photoUrls.length > 0) {
+      if ((place.photoRefs && place.photoRefs.length > 0) || (place.photoUrls && place.photoUrls.length > 0)) {
         return place;
       }
 

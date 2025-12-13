@@ -430,20 +430,17 @@ Googleマップで見つかった各施設について、以下の情報を厳�
 
           const details = detailsData.result;
 
-          // 写真URLを生成
-          const photoUrls = details.photos
-            ? details.photos.map((photo: any) => {
-                return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photo.photo_reference}&key=${googleMapsApiKey}`;
-              })
+          // 写真リファレンスを保存（APIキーは含めない - セキュリティ対策）
+          const photoRefs = details.photos
+            ? details.photos.map((photo: any) => photo.photo_reference)
             : [];
 
-          console.log(`✅ [Place Details] ${place.title}: ${photoUrls.length} photos, ${details.reviews?.length || 0} reviews`);
+          console.log(`✅ [Place Details] ${place.title}: ${photoRefs.length} photos, ${details.reviews?.length || 0} reviews`);
 
           return {
             ...place,
             title: details.name || place.title, // Places APIの公式名で上書き
-            photoUrl: photoUrls[0],
-            photoUrls,
+            photoRefs,  // APIキーなしのリファレンスのみ
             detailedReviews: details.reviews || [],
             website: details.website,
             businessStatus: details.business_status,
@@ -458,7 +455,7 @@ Googleマップで見つかった各施設について、以下の情報を厳�
       })
     );
 
-    console.log(`📊 [With Details] ${placesWithDetails.filter(p => p.photoUrls && p.photoUrls.length > 0).length}/${placesWithDetails.length} places have photos`);
+    console.log(`📊 [With Details] ${placesWithDetails.filter(p => p.photoRefs && p.photoRefs.length > 0).length}/${placesWithDetails.length} places have photos`);
 
     // === キャッシュ保存 ===
     // 現在地検索でなく、結果がある場合のみキャッシュ（詳細情報込み）
