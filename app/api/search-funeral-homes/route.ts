@@ -482,6 +482,7 @@ Googleマップで見つかった各施設について、以下の情報を厳�
 
     return NextResponse.json({
       places: placesWithDetails,
+      cached: false,
       _debug: {
         cacheKey,
         cacheReadError,
